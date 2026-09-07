@@ -838,20 +838,12 @@ a voice-generation engine is connected.
 ======================================================== */
 
 
-/*
-   IMPORTANT:
-
-   Replace ONLY the URL below with the public HTTPS URL
-   of your running GitHub Codespace backend.
-
-   Example:
-
-   const API_BASE =
-       "https://your-codespace-8000.app.github.dev";
-*/
+/* ========================================================
+   LIVE FASTAPI BACKEND
+======================================================== */
 
 const API_BASE =
-    "PASTE_YOUR_CODESPACE_BACKEND_URL_HERE";
+    "https://orange-trout-q7wg7qj54jqp29qwq-8000.app.github.dev";
 
 
 /* ========================================================
@@ -976,54 +968,169 @@ function setBusy(button, busy){
 
 function getApiUrl(path){
 
-    if(
-        !API_BASE ||
-        API_BASE.includes(
-            "PASTE_YOUR_CODESPACE"
-        )
-    ){
-
-        throw new Error(
-            "Backend URL is not configured yet."
-        );
-    }
-
     return (
         API_BASE.replace(/\/+$/, "") +
-        path
+        "/" +
+        path.replace(/^\/+/, "")
     );
 
 }
 
 
-async function parseResponse(response){
+/*
+   Converts a backend audio URL into a usable URL.
 
-    let data = null;
+   If FastAPI returns:
+
+       /audio/result.wav
+
+   it becomes:
+
+       https://orange-trout-q7wg7qj54jqp29qwq-8000.app.github.dev/audio/result.wav
+
+   If FastAPI already returns an absolute URL,
+   it is kept unchanged.
+*/
+
+function resolveBackendUrl(url){
+
+    if(!url){
+        return null;
+    }
 
     try{
 
-        data = await response.json();
+        return new URL(
+            url,
+            API_BASE + "/"
+        ).href;
 
-    }catch{
+    }catch(error){
 
-        throw new Error(
-            "Backend returned an invalid response."
+        console.error(
+            "Invalid backend URL:",
+            url,
+            error
         );
+
+        return null;
+
+    }
+
+}
+
+
+/*
+   Safely parse JSON responses.
+
+   FastAPI normally returns JSON, but this helper
+   also gives a useful error if the server returns
+   HTML/plain text instead.
+*/
+
+async function parseResponse(response){
+
+    const contentType =
+        response.headers.get(
+            "content-type"
+        ) || "";
+
+    let data = null;
+
+    if(
+        contentType.includes(
+            "application/json"
+        )
+    ){
+
+        try{
+
+            data =
+                await response.json();
+
+        }catch(error){
+
+            throw new Error(
+                "Backend returned invalid JSON."
+            );
+
+        }
+
+    }else{
+
+        const text =
+            await response.text();
+
+        if(!response.ok){
+
+            throw new Error(
+                text ||
+                `Backend request failed (${response.status}).`
+            );
+
+        }
+
+        return {
+            success:true,
+            message:text
+        };
 
     }
 
     if(!response.ok){
 
         const message =
-            data.detail ||
-            data.message ||
-            "Backend request failed.";
+            data?.detail ||
+            data?.message ||
+            data?.error ||
+            `Backend request failed (${response.status}).`;
 
-        throw new Error(message);
+        throw new Error(
+            typeof message === "string"
+                ? message
+                : JSON.stringify(message)
+        );
 
     }
 
     return data;
+
+}
+
+
+function getResponseText(data){
+
+    return (
+        data?.text ??
+        data?.transcript ??
+        data?.transcription ??
+        ""
+    );
+
+}
+
+
+function getTranslatedText(data){
+
+    return (
+        data?.translated_text ??
+        data?.translation ??
+        data?.text ??
+        ""
+    );
+
+}
+
+
+function getAudioUrl(data){
+
+    return (
+        data?.audio_url ??
+        data?.url ??
+        data?.audio ??
+        data?.output_url ??
+        null
+    );
 
 }
 
@@ -1034,11 +1141,22 @@ async function parseResponse(response){
 
 async function checkBackend(){
 
+    backendStatus.textContent =
+        "🟡 CHECKING...";
+
     try{
 
         const response =
             await fetch(
-                getApiUrl("/health")
+                getApiUrl("/health"),
+                {
+                    method:"GET",
+                    headers:{
+                        "Accept":
+                            "application/json"
+                    },
+                    cache:"no-store"
+                }
             );
 
         const data =
@@ -1046,27 +1164,50 @@ async function checkBackend(){
                 response
             );
 
+        /*
+           Accept the normal FastAPI:
+
+               {"status":"healthy"}
+
+           and also a successful JSON
+           response from the backend.
+        */
+
         if(
-            data.status ===
-            "healthy"
+            data?.status === "healthy" ||
+            data?.status === "ok" ||
+            data?.success === true
         ){
 
             backendStatus.textContent =
                 "🟢 ONLINE";
+
+            setStatus(
+                "🟢 Backend connected."
+            );
 
             return true;
 
         }
 
         backendStatus.textContent =
-            "🟡 UNKNOWN";
+            "🟡 CONNECTED";
 
-        return false;
+        setStatus(
+            "🟡 Backend responded, but health status is different."
+        );
+
+        return true;
 
     }catch(error){
 
         backendStatus.textContent =
-            "🔴 OFFLINE / URL NOT CONFIGURED";
+            "🔴 OFFLINE / CONNECTION ERROR";
+
+        setStatus(
+            "🔴 Backend connection failed: " +
+            error.message
+        );
 
         console.error(
             "Backend health error:",
@@ -1448,7 +1589,8 @@ uploadBtn.addEventListener(
 
             formData.append(
                 "file",
-                selectedAudioFile
+                selectedAudioFile,
+                selectedAudioFile.name
             );
 
             const response =
@@ -1458,7 +1600,11 @@ uploadBtn.addEventListener(
                     ),
                     {
                         method:"POST",
-                        body:formData
+                        body:formData,
+                        headers:{
+                            "Accept":
+                                "application/json"
+                        }
                     }
                 );
 
@@ -1467,7 +1613,9 @@ uploadBtn.addEventListener(
                     response
                 );
 
-            if(data.success){
+            if(
+                data?.success !== false
+            ){
 
                 uploadedAudioReady =
                     true;
@@ -1479,7 +1627,8 @@ uploadBtn.addEventListener(
             }else{
 
                 throw new Error(
-                    data.message ||
+                    data?.message ||
+                    data?.detail ||
                     "Audio upload failed."
                 );
 
@@ -1544,7 +1693,8 @@ transcribeBtn.addEventListener(
 
             formData.append(
                 "file",
-                selectedAudioFile
+                selectedAudioFile,
+                selectedAudioFile.name
             );
 
             const response =
@@ -1554,7 +1704,11 @@ transcribeBtn.addEventListener(
                     ),
                     {
                         method:"POST",
-                        body:formData
+                        body:formData,
+                        headers:{
+                            "Accept":
+                                "application/json"
+                        }
                     }
                 );
 
@@ -1563,13 +1717,16 @@ transcribeBtn.addEventListener(
                     response
                 );
 
-            if(
-                data.success &&
-                data.text
-            ){
+            const text =
+                getResponseText(data);
+
+            if(text){
 
                 transcript.value =
-                    data.text;
+                    text;
+
+                downloadTranscriptBtn.disabled =
+                    false;
 
                 setStatus(
                     "🟢 Transcription completed."
@@ -1578,8 +1735,12 @@ transcribeBtn.addEventListener(
             }else{
 
                 setStatus(
-                    "🟡 Backend received the audio, " +
-                    "but the transcription engine is not connected yet."
+                    "🟡 Backend received the audio, but no transcript was returned."
+                );
+
+                console.log(
+                    "Transcribe response:",
+                    data
                 );
 
             }
@@ -1627,6 +1788,19 @@ translateBtn.addEventListener(
 
         }
 
+        if(
+            sourceLanguage.value ===
+            targetLanguage.value
+        ){
+
+            setStatus(
+                "🟡 Source and target languages are the same."
+            );
+
+            return;
+
+        }
+
         setBusy(
             translateBtn,
             true
@@ -1648,6 +1822,9 @@ translateBtn.addEventListener(
 
                         headers:{
                             "Content-Type":
+                                "application/json",
+
+                            "Accept":
                                 "application/json"
                         },
 
@@ -1668,13 +1845,16 @@ translateBtn.addEventListener(
                     response
                 );
 
-            if(
-                data.success &&
-                data.translated_text
-            ){
+            const translatedText =
+                getTranslatedText(data);
+
+            if(translatedText){
 
                 transcript.value =
-                    data.translated_text;
+                    translatedText;
+
+                downloadTranscriptBtn.disabled =
+                    false;
 
                 setStatus(
                     "🟢 Translation completed."
@@ -1683,8 +1863,12 @@ translateBtn.addEventListener(
             }else{
 
                 setStatus(
-                    "🟡 Backend received the request, " +
-                    "but the translation engine is not connected yet."
+                    "🟡 Backend received the request, but no translated text was returned."
+                );
+
+                console.log(
+                    "Translation response:",
+                    data
                 );
 
             }
@@ -1745,7 +1929,8 @@ voiceUploadBtn.addEventListener(
 
             formData.append(
                 "file",
-                selectedVoiceFile
+                selectedVoiceFile,
+                selectedVoiceFile.name
             );
 
             const response =
@@ -1755,7 +1940,11 @@ voiceUploadBtn.addEventListener(
                     ),
                     {
                         method:"POST",
-                        body:formData
+                        body:formData,
+                        headers:{
+                            "Accept":
+                                "application/json"
+                        }
                     }
                 );
 
@@ -1764,7 +1953,9 @@ voiceUploadBtn.addEventListener(
                     response
                 );
 
-            if(data.success){
+            if(
+                data?.success !== false
+            ){
 
                 uploadedVoiceReady =
                     true;
@@ -1776,7 +1967,8 @@ voiceUploadBtn.addEventListener(
             }else{
 
                 throw new Error(
-                    data.message ||
+                    data?.message ||
+                    data?.detail ||
                     "Voice reference upload failed."
                 );
 
@@ -1849,6 +2041,9 @@ generateBtn.addEventListener(
 
                         headers:{
                             "Content-Type":
+                                "application/json",
+
+                            "Accept":
                                 "application/json"
                         },
 
@@ -1869,13 +2064,23 @@ generateBtn.addEventListener(
                     response
                 );
 
-            if(
-                data.success &&
-                data.audio_url
-            ){
+            const audioUrl =
+                getAudioUrl(data);
+
+            if(audioUrl){
 
                 generatedAudioUrl =
-                    data.audio_url;
+                    resolveBackendUrl(
+                        audioUrl
+                    );
+
+                if(!generatedAudioUrl){
+
+                    throw new Error(
+                        "Backend returned an invalid audio URL."
+                    );
+
+                }
 
                 outputAudio.src =
                     generatedAudioUrl;
@@ -1897,13 +2102,15 @@ generateBtn.addEventListener(
             }else{
 
                 outputMessage.textContent =
-                    "The dubbing request reached the backend, " +
-                    "but the authorized voice-generation engine " +
-                    "is not connected yet.";
+                    "The dubbing request reached the backend, but no audio URL was returned.";
 
                 setStatus(
-                    "🟡 Backend received the dubbing request, " +
-                    "but voice generation is not connected yet."
+                    "🟡 Backend received the dubbing request, but no generated audio was returned."
+                );
+
+                console.log(
+                    "Dubbing response:",
+                    data
                 );
 
             }
@@ -2034,7 +2241,7 @@ previewBtn.addEventListener(
 
 downloadBtn.addEventListener(
     "click",
-    function(){
+    async function(){
 
         if(!generatedAudioUrl){
 
@@ -2046,50 +2253,72 @@ downloadBtn.addEventListener(
 
         }
 
-        const link =
-            document.createElement(
-                "a"
+        try{
+
+            setStatus(
+                "🟡 Preparing audio download..."
             );
 
-        link.href =
-            generatedAudioUrl;
+            const response =
+                await fetch(
+                    generatedAudioUrl
+                );
 
-        link.download =
-            "bicon-dubbed-audio";
+            if(!response.ok){
 
-        document.body.appendChild(
-            link
-        );
+                throw new Error(
+                    `Audio download failed (${response.status}).`
+                );
 
-        link.click();
+            }
 
-        link.remove();
+            const blob =
+                await response.blob();
 
-        setStatus(
-            "🟢 Download started."
-        );
+            const url =
+                URL.createObjectURL(
+                    blob
+                );
 
-    }
-);
+            const link =
+                document.createElement(
+                    "a"
+                );
 
+            link.href =
+                url;
 
-/* ========================================================
-   DOWNLOAD RECORDED SOURCE AUDIO
-======================================================== */
+            link.download =
+                "bicon-dubbed-audio";
 
-sourceAudio.addEventListener(
-    "loadeddata",
-    function(){
+            document.body.appendChild(
+                link
+            );
 
-        if(
-            recordedUrl &&
-            recordedBlob
-        ){
+            link.click();
 
-            /*
-             * The recorded source is available
-             * locally in the browser.
-             */
+            link.remove();
+
+            URL.revokeObjectURL(
+                url
+            );
+
+            setStatus(
+                "🟢 Download started."
+            );
+
+        }catch(error){
+
+            console.error(
+                "Audio download error:",
+                error
+            );
+
+            setStatus(
+                "🔴 Audio download error: " +
+                error.message
+            );
+
         }
 
     }
