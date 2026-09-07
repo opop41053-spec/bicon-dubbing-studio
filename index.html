@@ -347,6 +347,13 @@ button.secondary{
         );
 }
 
+button:disabled{
+    opacity:.55;
+    cursor:not-allowed;
+    transform:none;
+    box-shadow:none;
+}
+
 
 /* =========================
    STATUS
@@ -366,6 +373,57 @@ button.secondary{
         1px solid rgba(0,255,150,.18);
 
     color:#63ffb0;
+
+    line-height:1.5;
+
+    word-break:break-word;
+}
+
+
+/* =========================
+   AUDIO
+========================= */
+
+audio{
+    width:100%;
+    margin-top:15px;
+}
+
+.hidden{
+    display:none !important;
+}
+
+.file-info{
+    margin-top:12px;
+    color:#8edfff;
+    font-size:.9rem;
+    line-height:1.5;
+    word-break:break-word;
+}
+
+
+/* =========================
+   BACKEND URL
+========================= */
+
+.backend-box{
+    margin-top:20px;
+    padding:15px;
+
+    border-radius:12px;
+
+    background:
+        rgba(0,150,255,.05);
+
+    border:
+        1px solid rgba(0,180,255,.18);
+}
+
+.backend-box small{
+    color:#8fa9bd;
+    display:block;
+    margin-top:7px;
+    line-height:1.5;
 }
 
 
@@ -431,7 +489,7 @@ footer{
 
     <p>
         AI Voice Dubbing Studio
-        — Frontend Prototype
+        — Connected Frontend
     </p>
 
 </header>
@@ -441,10 +499,14 @@ footer{
 
 <strong>IMPORTANT:</strong>
 
-This version is the frontend interface.
-Audio processing, Whisper transcription,
-translation and voice generation will be
-connected to the backend in later steps.
+Use only your own voice or a voice for
+which you have explicit permission.
+Audio is sent to the configured BICON
+backend for processing. AI transcription,
+translation and voice-generation engines
+must be connected on the backend before
+those operations can produce generated
+results.
 
 </div>
 
@@ -474,6 +536,11 @@ Audio File
 >
 
 
+<div class="file-info" id="audioInfo">
+No audio selected.
+</div>
+
+
 <div class="buttons">
 
 <button
@@ -487,11 +554,28 @@ Audio File
     type="button"
     class="secondary"
     id="stopBtn"
+    disabled
 >
 ⏹ Stop
 </button>
 
+<button
+    type="button"
+    class="secondary"
+    id="uploadBtn"
+    disabled
+>
+☁ Upload
+</button>
+
 </div>
+
+
+<audio
+    id="sourceAudio"
+    controls
+    class="hidden"
+></audio>
 
 </section>
 
@@ -582,6 +666,20 @@ Transcript
 
 <button
     type="button"
+    id="transcribeBtn"
+>
+📝 Transcribe
+</button>
+
+<button
+    type="button"
+    id="translateBtn"
+>
+🌐 Translate
+</button>
+
+<button
+    type="button"
     id="generateBtn"
 >
 🚀 Generate Dub
@@ -621,6 +719,26 @@ Voice Reference
     accept="audio/*"
 >
 
+<div
+    class="file-info"
+    id="voiceInfo"
+>
+No voice reference selected.
+</div>
+
+<div class="buttons">
+
+<button
+    type="button"
+    class="secondary"
+    id="voiceUploadBtn"
+    disabled
+>
+☁ Upload Reference
+</button>
+
+</div>
+
 </section>
 
 
@@ -637,12 +755,20 @@ Voice Reference
 🟢 READY
 </div>
 
-<br>
+<div class="backend-box">
 
-<p>
-Backend connection will be added in the
-next development phase.
-</p>
+<strong>Backend:</strong>
+
+<div id="backendStatus">
+Checking...
+</div>
+
+<small>
+The frontend communicates with the
+BICON FastAPI backend through HTTPS.
+</small>
+
+</div>
 
 </section>
 
@@ -653,10 +779,18 @@ next development phase.
 
 <h2>📥 6. Output</h2>
 
-<p>
-Generated MP3/WAV files will appear here
-after backend integration.
+<p id="outputMessage">
+Generated audio will appear here after
+a voice-generation engine is connected.
 </p>
+
+
+<audio
+    id="outputAudio"
+    controls
+    class="hidden"
+></audio>
+
 
 <div class="buttons">
 
@@ -664,8 +798,18 @@ after backend integration.
     type="button"
     class="secondary"
     id="downloadBtn"
+    disabled
 >
-⬇ Download
+⬇ Download Audio
+</button>
+
+<button
+    type="button"
+    class="secondary"
+    id="downloadTranscriptBtn"
+    disabled
+>
+⬇ Download Transcript
 </button>
 
 </div>
@@ -688,8 +832,64 @@ after backend integration.
 
 <script>
 
+/* ========================================================
+   BICON DUBBING STUDIO
+   FRONTEND ↔ FASTAPI BACKEND
+======================================================== */
+
+
+/*
+   IMPORTANT:
+
+   Replace ONLY the URL below with the public HTTPS URL
+   of your running GitHub Codespace backend.
+
+   Example:
+
+   const API_BASE =
+       "https://your-codespace-8000.app.github.dev";
+*/
+
+const API_BASE =
+    "PASTE_YOUR_CODESPACE_BACKEND_URL_HERE";
+
+
+/* ========================================================
+   DOM ELEMENTS
+======================================================== */
+
 const statusBox =
     document.getElementById("status");
+
+const backendStatus =
+    document.getElementById("backendStatus");
+
+const audioFile =
+    document.getElementById("audioFile");
+
+const audioInfo =
+    document.getElementById("audioInfo");
+
+const voiceFile =
+    document.getElementById("voiceFile");
+
+const voiceInfo =
+    document.getElementById("voiceInfo");
+
+const sourceAudio =
+    document.getElementById("sourceAudio");
+
+const outputAudio =
+    document.getElementById("outputAudio");
+
+const transcript =
+    document.getElementById("transcript");
+
+const sourceLanguage =
+    document.getElementById("sourceLanguage");
+
+const targetLanguage =
+    document.getElementById("targetLanguage");
 
 const recordBtn =
     document.getElementById("recordBtn");
@@ -697,69 +897,1316 @@ const recordBtn =
 const stopBtn =
     document.getElementById("stopBtn");
 
+const uploadBtn =
+    document.getElementById("uploadBtn");
+
+const transcribeBtn =
+    document.getElementById("transcribeBtn");
+
+const translateBtn =
+    document.getElementById("translateBtn");
+
 const generateBtn =
     document.getElementById("generateBtn");
 
 const previewBtn =
     document.getElementById("previewBtn");
 
+const voiceUploadBtn =
+    document.getElementById("voiceUploadBtn");
+
 const downloadBtn =
     document.getElementById("downloadBtn");
 
+const downloadTranscriptBtn =
+    document.getElementById(
+        "downloadTranscriptBtn"
+    );
 
-recordBtn.addEventListener(
-    "click",
+const outputMessage =
+    document.getElementById(
+        "outputMessage"
+    );
+
+
+/* ========================================================
+   STATE
+======================================================== */
+
+let mediaRecorder = null;
+
+let recordedChunks = [];
+
+let recordedBlob = null;
+
+let recordedUrl = null;
+
+let selectedAudioFile = null;
+
+let selectedVoiceFile = null;
+
+let uploadedAudioReady = false;
+
+let uploadedVoiceReady = false;
+
+let generatedAudioUrl = null;
+
+
+/* ========================================================
+   HELPERS
+======================================================== */
+
+function setStatus(message){
+
+    statusBox.textContent = message;
+
+}
+
+
+function setBusy(button, busy){
+
+    if(!button){
+        return;
+    }
+
+    button.disabled = busy;
+
+}
+
+
+function getApiUrl(path){
+
+    if(
+        !API_BASE ||
+        API_BASE.includes(
+            "PASTE_YOUR_CODESPACE"
+        )
+    ){
+
+        throw new Error(
+            "Backend URL is not configured yet."
+        );
+    }
+
+    return (
+        API_BASE.replace(/\/+$/, "") +
+        path
+    );
+
+}
+
+
+async function parseResponse(response){
+
+    let data = null;
+
+    try{
+
+        data = await response.json();
+
+    }catch{
+
+        throw new Error(
+            "Backend returned an invalid response."
+        );
+
+    }
+
+    if(!response.ok){
+
+        const message =
+            data.detail ||
+            data.message ||
+            "Backend request failed.";
+
+        throw new Error(message);
+
+    }
+
+    return data;
+
+}
+
+
+/* ========================================================
+   BACKEND HEALTH CHECK
+======================================================== */
+
+async function checkBackend(){
+
+    try{
+
+        const response =
+            await fetch(
+                getApiUrl("/health")
+            );
+
+        const data =
+            await parseResponse(
+                response
+            );
+
+        if(
+            data.status ===
+            "healthy"
+        ){
+
+            backendStatus.textContent =
+                "🟢 ONLINE";
+
+            return true;
+
+        }
+
+        backendStatus.textContent =
+            "🟡 UNKNOWN";
+
+        return false;
+
+    }catch(error){
+
+        backendStatus.textContent =
+            "🔴 OFFLINE / URL NOT CONFIGURED";
+
+        console.error(
+            "Backend health error:",
+            error
+        );
+
+        return false;
+
+    }
+
+}
+
+
+/* ========================================================
+   AUDIO FILE SELECTION
+======================================================== */
+
+audioFile.addEventListener(
+    "change",
     function(){
 
-        statusBox.textContent =
-            "🟡 Recording feature will be connected to the audio module.";
+        selectedAudioFile =
+            audioFile.files[0] || null;
+
+        uploadedAudioReady = false;
+
+        uploadBtn.disabled =
+            !selectedAudioFile;
+
+        transcribeBtn.disabled =
+            !selectedAudioFile;
+
+        if(!selectedAudioFile){
+
+            audioInfo.textContent =
+                "No audio selected.";
+
+            return;
+
+        }
+
+        audioInfo.textContent =
+            `${selectedAudioFile.name} — ` +
+            `${formatBytes(selectedAudioFile.size)}`;
+
+        createSourcePreview(
+            selectedAudioFile
+        );
+
+        setStatus(
+            "🟢 Audio selected. Ready."
+        );
 
     }
 );
 
+
+/* ========================================================
+   VOICE REFERENCE SELECTION
+======================================================== */
+
+voiceFile.addEventListener(
+    "change",
+    function(){
+
+        selectedVoiceFile =
+            voiceFile.files[0] || null;
+
+        uploadedVoiceReady = false;
+
+        voiceUploadBtn.disabled =
+            !selectedVoiceFile;
+
+        if(!selectedVoiceFile){
+
+            voiceInfo.textContent =
+                "No voice reference selected.";
+
+            return;
+
+        }
+
+        voiceInfo.textContent =
+            `${selectedVoiceFile.name} — ` +
+            `${formatBytes(selectedVoiceFile.size)}`;
+
+        setStatus(
+            "🟢 Voice reference selected."
+        );
+
+    }
+);
+
+
+/* ========================================================
+   FILE SIZE
+======================================================== */
+
+function formatBytes(bytes){
+
+    if(bytes === 0){
+        return "0 Bytes";
+    }
+
+    const units = [
+        "Bytes",
+        "KB",
+        "MB",
+        "GB"
+    ];
+
+    const index =
+        Math.floor(
+            Math.log(bytes) /
+            Math.log(1024)
+        );
+
+    return (
+        parseFloat(
+            (
+                bytes /
+                Math.pow(
+                    1024,
+                    index
+                )
+            ).toFixed(2)
+        ) +
+        " " +
+        units[index]
+    );
+
+}
+
+
+/* ========================================================
+   SOURCE AUDIO PREVIEW
+======================================================== */
+
+function createSourcePreview(file){
+
+    if(recordedUrl){
+
+        URL.revokeObjectURL(
+            recordedUrl
+        );
+
+        recordedUrl = null;
+
+    }
+
+    const url =
+        URL.createObjectURL(file);
+
+    sourceAudio.src = url;
+
+    sourceAudio.classList.remove(
+        "hidden"
+    );
+
+}
+
+
+/* ========================================================
+   MICROPHONE RECORDING
+======================================================== */
+
+recordBtn.addEventListener(
+    "click",
+    async function(){
+
+        try{
+
+            if(
+                !navigator.mediaDevices ||
+                !navigator.mediaDevices.getUserMedia
+            ){
+
+                throw new Error(
+                    "Microphone recording is not supported by this browser."
+                );
+
+            }
+
+            const stream =
+                await navigator.mediaDevices
+                    .getUserMedia({
+                        audio:true
+                    });
+
+            recordedChunks = [];
+
+            mediaRecorder =
+                new MediaRecorder(
+                    stream
+                );
+
+            mediaRecorder.addEventListener(
+                "dataavailable",
+                function(event){
+
+                    if(
+                        event.data &&
+                        event.data.size > 0
+                    ){
+
+                        recordedChunks.push(
+                            event.data
+                        );
+
+                    }
+
+                }
+            );
+
+            mediaRecorder.addEventListener(
+                "stop",
+                function(){
+
+                    recordedBlob =
+                        new Blob(
+                            recordedChunks,
+                            {
+                                type:
+                                    mediaRecorder.mimeType ||
+                                    "audio/webm"
+                            }
+                        );
+
+                    if(recordedUrl){
+
+                        URL.revokeObjectURL(
+                            recordedUrl
+                        );
+
+                    }
+
+                    recordedUrl =
+                        URL.createObjectURL(
+                            recordedBlob
+                        );
+
+                    sourceAudio.src =
+                        recordedUrl;
+
+                    sourceAudio.classList.remove(
+                        "hidden"
+                    );
+
+                    selectedAudioFile =
+                        new File(
+                            [
+                                recordedBlob
+                            ],
+                            "bicon-recording.webm",
+                            {
+                                type:
+                                    recordedBlob.type
+                            }
+                        );
+
+                    audioInfo.textContent =
+                        "🎙️ New recording ready — " +
+                        formatBytes(
+                            recordedBlob.size
+                        );
+
+                    uploadBtn.disabled =
+                        false;
+
+                    transcribeBtn.disabled =
+                        false;
+
+                    setStatus(
+                        "🟢 Recording stopped. Audio ready."
+                    );
+
+                }
+            );
+
+            mediaRecorder.start();
+
+            recordBtn.disabled =
+                true;
+
+            stopBtn.disabled =
+                false;
+
+            setStatus(
+                "🔴 Recording..."
+            );
+
+        }catch(error){
+
+            console.error(error);
+
+            setStatus(
+                "🔴 Microphone error: " +
+                error.message
+            );
+
+        }
+
+    }
+);
+
+
+/* ========================================================
+   STOP RECORDING
+======================================================== */
 
 stopBtn.addEventListener(
     "click",
     function(){
 
-        statusBox.textContent =
-            "🟢 READY";
+        if(
+            mediaRecorder &&
+            mediaRecorder.state !==
+            "inactive"
+        ){
+
+            mediaRecorder.stop();
+
+            if(
+                mediaRecorder.stream
+            ){
+
+                mediaRecorder.stream
+                    .getTracks()
+                    .forEach(
+                        track =>
+                            track.stop()
+                    );
+
+            }
+
+        }
+
+        recordBtn.disabled =
+            false;
+
+        stopBtn.disabled =
+            true;
 
     }
 );
 
+
+/* ========================================================
+   UPLOAD AUDIO
+======================================================== */
+
+uploadBtn.addEventListener(
+    "click",
+    async function(){
+
+        if(!selectedAudioFile){
+
+            setStatus(
+                "🟡 Please select or record audio first."
+            );
+
+            return;
+
+        }
+
+        setBusy(
+            uploadBtn,
+            true
+        );
+
+        setStatus(
+            "🟡 Uploading audio..."
+        );
+
+        try{
+
+            const formData =
+                new FormData();
+
+            formData.append(
+                "file",
+                selectedAudioFile
+            );
+
+            const response =
+                await fetch(
+                    getApiUrl(
+                        "/api/upload"
+                    ),
+                    {
+                        method:"POST",
+                        body:formData
+                    }
+                );
+
+            const data =
+                await parseResponse(
+                    response
+                );
+
+            if(data.success){
+
+                uploadedAudioReady =
+                    true;
+
+                setStatus(
+                    "🟢 Audio uploaded successfully."
+                );
+
+            }else{
+
+                throw new Error(
+                    data.message ||
+                    "Audio upload failed."
+                );
+
+            }
+
+        }catch(error){
+
+            uploadedAudioReady =
+                false;
+
+            setStatus(
+                "🔴 Upload error: " +
+                error.message
+            );
+
+            console.error(error);
+
+        }finally{
+
+            setBusy(
+                uploadBtn,
+                false
+            );
+
+        }
+
+    }
+);
+
+
+/* ========================================================
+   TRANSCRIBE
+======================================================== */
+
+transcribeBtn.addEventListener(
+    "click",
+    async function(){
+
+        if(!selectedAudioFile){
+
+            setStatus(
+                "🟡 Select or record audio first."
+            );
+
+            return;
+
+        }
+
+        setBusy(
+            transcribeBtn,
+            true
+        );
+
+        setStatus(
+            "🟡 Sending audio for transcription..."
+        );
+
+        try{
+
+            const formData =
+                new FormData();
+
+            formData.append(
+                "file",
+                selectedAudioFile
+            );
+
+            const response =
+                await fetch(
+                    getApiUrl(
+                        "/api/transcribe"
+                    ),
+                    {
+                        method:"POST",
+                        body:formData
+                    }
+                );
+
+            const data =
+                await parseResponse(
+                    response
+                );
+
+            if(
+                data.success &&
+                data.text
+            ){
+
+                transcript.value =
+                    data.text;
+
+                setStatus(
+                    "🟢 Transcription completed."
+                );
+
+            }else{
+
+                setStatus(
+                    "🟡 Backend received the audio, " +
+                    "but the transcription engine is not connected yet."
+                );
+
+            }
+
+        }catch(error){
+
+            setStatus(
+                "🔴 Transcription error: " +
+                error.message
+            );
+
+            console.error(error);
+
+        }finally{
+
+            setBusy(
+                transcribeBtn,
+                false
+            );
+
+        }
+
+    }
+);
+
+
+/* ========================================================
+   TRANSLATION
+======================================================== */
+
+translateBtn.addEventListener(
+    "click",
+    async function(){
+
+        const text =
+            transcript.value.trim();
+
+        if(!text){
+
+            setStatus(
+                "🟡 Enter or generate transcript first."
+            );
+
+            return;
+
+        }
+
+        setBusy(
+            translateBtn,
+            true
+        );
+
+        setStatus(
+            "🟡 Sending transcript for translation..."
+        );
+
+        try{
+
+            const response =
+                await fetch(
+                    getApiUrl(
+                        "/api/translate"
+                    ),
+                    {
+                        method:"POST",
+
+                        headers:{
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body:JSON.stringify({
+                            text:text,
+
+                            source_language:
+                                sourceLanguage.value,
+
+                            target_language:
+                                targetLanguage.value
+                        })
+                    }
+                );
+
+            const data =
+                await parseResponse(
+                    response
+                );
+
+            if(
+                data.success &&
+                data.translated_text
+            ){
+
+                transcript.value =
+                    data.translated_text;
+
+                setStatus(
+                    "🟢 Translation completed."
+                );
+
+            }else{
+
+                setStatus(
+                    "🟡 Backend received the request, " +
+                    "but the translation engine is not connected yet."
+                );
+
+            }
+
+        }catch(error){
+
+            setStatus(
+                "🔴 Translation error: " +
+                error.message
+            );
+
+            console.error(error);
+
+        }finally{
+
+            setBusy(
+                translateBtn,
+                false
+            );
+
+        }
+
+    }
+);
+
+
+/* ========================================================
+   VOICE REFERENCE UPLOAD
+======================================================== */
+
+voiceUploadBtn.addEventListener(
+    "click",
+    async function(){
+
+        if(!selectedVoiceFile){
+
+            setStatus(
+                "🟡 Select a voice reference first."
+            );
+
+            return;
+
+        }
+
+        setBusy(
+            voiceUploadBtn,
+            true
+        );
+
+        setStatus(
+            "🟡 Uploading voice reference..."
+        );
+
+        try{
+
+            const formData =
+                new FormData();
+
+            formData.append(
+                "file",
+                selectedVoiceFile
+            );
+
+            const response =
+                await fetch(
+                    getApiUrl(
+                        "/api/upload"
+                    ),
+                    {
+                        method:"POST",
+                        body:formData
+                    }
+                );
+
+            const data =
+                await parseResponse(
+                    response
+                );
+
+            if(data.success){
+
+                uploadedVoiceReady =
+                    true;
+
+                setStatus(
+                    "🟢 Voice reference uploaded."
+                );
+
+            }else{
+
+                throw new Error(
+                    data.message ||
+                    "Voice reference upload failed."
+                );
+
+            }
+
+        }catch(error){
+
+            uploadedVoiceReady =
+                false;
+
+            setStatus(
+                "🔴 Voice reference error: " +
+                error.message
+            );
+
+            console.error(error);
+
+        }finally{
+
+            setBusy(
+                voiceUploadBtn,
+                false
+            );
+
+        }
+
+    }
+);
+
+
+/* ========================================================
+   GENERATE DUB
+======================================================== */
 
 generateBtn.addEventListener(
     "click",
-    function(){
+    async function(){
 
-        statusBox.textContent =
-            "🟡 Backend is not connected yet. Frontend is working correctly.";
+        const text =
+            transcript.value.trim();
+
+        if(!text){
+
+            setStatus(
+                "🟡 Transcript is empty."
+            );
+
+            return;
+
+        }
+
+        setBusy(
+            generateBtn,
+            true
+        );
+
+        setStatus(
+            "🟡 Sending dubbing request..."
+        );
+
+        try{
+
+            const response =
+                await fetch(
+                    getApiUrl(
+                        "/api/dubbing"
+                    ),
+                    {
+                        method:"POST",
+
+                        headers:{
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body:JSON.stringify({
+                            text:text,
+
+                            source_language:
+                                sourceLanguage.value,
+
+                            target_language:
+                                targetLanguage.value
+                        })
+                    }
+                );
+
+            const data =
+                await parseResponse(
+                    response
+                );
+
+            if(
+                data.success &&
+                data.audio_url
+            ){
+
+                generatedAudioUrl =
+                    data.audio_url;
+
+                outputAudio.src =
+                    generatedAudioUrl;
+
+                outputAudio.classList.remove(
+                    "hidden"
+                );
+
+                downloadBtn.disabled =
+                    false;
+
+                outputMessage.textContent =
+                    "Generated audio is ready.";
+
+                setStatus(
+                    "🟢 Dub generated successfully."
+                );
+
+            }else{
+
+                outputMessage.textContent =
+                    "The dubbing request reached the backend, " +
+                    "but the authorized voice-generation engine " +
+                    "is not connected yet.";
+
+                setStatus(
+                    "🟡 Backend received the dubbing request, " +
+                    "but voice generation is not connected yet."
+                );
+
+            }
+
+        }catch(error){
+
+            setStatus(
+                "🔴 Dubbing error: " +
+                error.message
+            );
+
+            console.error(error);
+
+        }finally{
+
+            setBusy(
+                generateBtn,
+                false
+            );
+
+        }
 
     }
 );
 
+
+/* ========================================================
+   BROWSER PREVIEW
+======================================================== */
 
 previewBtn.addEventListener(
     "click",
     function(){
 
-        statusBox.textContent =
-            "🟡 Preview will become available after audio generation.";
+        const text =
+            transcript.value.trim();
+
+        if(!text){
+
+            setStatus(
+                "🟡 Enter some transcript text first."
+            );
+
+            return;
+
+        }
+
+        if(
+            !("speechSynthesis" in window)
+        ){
+
+            setStatus(
+                "🔴 Browser speech preview is not supported."
+            );
+
+            return;
+
+        }
+
+        window.speechSynthesis.cancel();
+
+        const utterance =
+            new SpeechSynthesisUtterance(
+                text
+            );
+
+        const languageMap = {
+            hi:"hi-IN",
+            en:"en-US",
+            es:"es-ES",
+            fr:"fr-FR",
+            de:"de-DE"
+        };
+
+        utterance.lang =
+            languageMap[
+                targetLanguage.value
+            ] ||
+            "en-US";
+
+        utterance.rate =
+            1;
+
+        utterance.pitch =
+            1;
+
+        utterance.volume =
+            1;
+
+        utterance.onstart =
+            function(){
+
+                setStatus(
+                    "🔊 Browser preview playing..."
+                );
+
+            };
+
+        utterance.onend =
+            function(){
+
+                setStatus(
+                    "🟢 Preview finished."
+                );
+
+            };
+
+        utterance.onerror =
+            function(){
+
+                setStatus(
+                    "🔴 Browser preview failed."
+                );
+
+            };
+
+        window.speechSynthesis.speak(
+            utterance
+        );
 
     }
 );
 
+
+/* ========================================================
+   DOWNLOAD GENERATED AUDIO
+======================================================== */
 
 downloadBtn.addEventListener(
     "click",
     function(){
 
-        statusBox.textContent =
-            "🟡 No generated audio is available yet.";
+        if(!generatedAudioUrl){
+
+            setStatus(
+                "🟡 No generated audio is available."
+            );
+
+            return;
+
+        }
+
+        const link =
+            document.createElement(
+                "a"
+            );
+
+        link.href =
+            generatedAudioUrl;
+
+        link.download =
+            "bicon-dubbed-audio";
+
+        document.body.appendChild(
+            link
+        );
+
+        link.click();
+
+        link.remove();
+
+        setStatus(
+            "🟢 Download started."
+        );
 
     }
 );
+
+
+/* ========================================================
+   DOWNLOAD RECORDED SOURCE AUDIO
+======================================================== */
+
+sourceAudio.addEventListener(
+    "loadeddata",
+    function(){
+
+        if(
+            recordedUrl &&
+            recordedBlob
+        ){
+
+            /*
+             * The recorded source is available
+             * locally in the browser.
+             */
+        }
+
+    }
+);
+
+
+/* ========================================================
+   DOWNLOAD TRANSCRIPT
+======================================================== */
+
+downloadTranscriptBtn.addEventListener(
+    "click",
+    function(){
+
+        const text =
+            transcript.value.trim();
+
+        if(!text){
+
+            setStatus(
+                "🟡 Transcript is empty."
+            );
+
+            return;
+
+        }
+
+        const blob =
+            new Blob(
+                [text],
+                {
+                    type:
+                        "text/plain;charset=utf-8"
+                }
+            );
+
+        const url =
+            URL.createObjectURL(
+                blob
+            );
+
+        const link =
+            document.createElement(
+                "a"
+            );
+
+        link.href =
+            url;
+
+        link.download =
+            "bicon-transcript.txt";
+
+        document.body.appendChild(
+            link
+        );
+
+        link.click();
+
+        link.remove();
+
+        URL.revokeObjectURL(
+            url
+        );
+
+        setStatus(
+            "🟢 Transcript downloaded."
+        );
+
+    }
+);
+
+
+/* ========================================================
+   ENABLE TRANSCRIPT DOWNLOAD
+======================================================== */
+
+transcript.addEventListener(
+    "input",
+    function(){
+
+        downloadTranscriptBtn.disabled =
+            transcript.value.trim().length === 0;
+
+    }
+);
+
+
+/* ========================================================
+   INITIALIZATION
+======================================================== */
+
+downloadTranscriptBtn.disabled =
+    transcript.value.trim().length === 0;
+
+transcribeBtn.disabled =
+    true;
+
+uploadBtn.disabled =
+    true;
+
+voiceUploadBtn.disabled =
+    true;
+
+downloadBtn.disabled =
+    true;
+
+
+/*
+   Check backend when page loads.
+*/
+
+checkBackend();
+
+
+/* ========================================================
+   END
+======================================================== */
 
 </script>
 
