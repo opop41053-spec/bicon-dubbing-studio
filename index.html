@@ -1821,7 +1821,7 @@ transcribeBtn.addEventListener(
                 );
 
             addDiagnostic(
-                `FastAPI → Gemini: request completed. Stage: ${data?.stage || "unknown"}. Model: ${data?.model || "n/a"}.`
+                `FastAPI → Gemini: request completed. Stage: ${data?.stage || "unknown"}. Model: ${data?.model || "n/a"}. Transport: ${data?.transport || "n/a"}. File state: ${data?.file_state || "n/a"}.`
             );
 
             const text =
