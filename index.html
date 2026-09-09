@@ -442,6 +442,29 @@ footer{
 }
 
 
+.diagnostic-box{
+margin-top:16px;
+padding:15px;
+border-radius:12px;
+background:rgba(0,0,0,.24);
+border:1px solid rgba(0,220,255,.18);
+color:#ccefff;
+line-height:1.6;
+word-break:break-word;
+}
+
+.diagnostic-box strong{
+display:block;
+margin-bottom:8px;
+color:#00d9ff;
+}
+
+#diagnosticLog{
+white-space:pre-wrap;
+font-size:.9rem;
+color:#b9cad8;
+}
+
 /* =========================
    MOBILE
 ========================= */
@@ -770,6 +793,13 @@ BICON FastAPI backend through HTTPS.
 
 </div>
 
+<div class="diagnostic-box">
+<strong>🔎 Diagnostic Board</strong>
+<div id="diagnosticLog" aria-live="polite">
+Ready — waiting for an operation.
+</div>
+</div>
+
 </section>
 
 
@@ -855,6 +885,9 @@ const statusBox =
 
 const backendStatus =
     document.getElementById("backendStatus");
+
+const diagnosticLog =
+    document.getElementById("diagnosticLog");
 
 const audioFile =
     document.getElementById("audioFile");
@@ -951,6 +984,41 @@ let generatedAudioUrl = null;
 function setStatus(message){
 
     statusBox.textContent = message;
+
+}
+
+
+function addDiagnostic(message){
+
+    if(!diagnosticLog){
+        return;
+    }
+
+    const now = new Date().toLocaleTimeString();
+    const line = `[${now}] ${message}`;
+
+    if(
+        diagnosticLog.textContent ===
+        "Ready — waiting for an operation."
+    ){
+        diagnosticLog.textContent = line;
+    }else{
+        diagnosticLog.textContent += "\n" + line;
+    }
+
+}
+
+
+function describeBackendError(data){
+
+    const stage = data?.stage || "unknown_stage";
+    const code = data?.error || "BACKEND_ERROR";
+    const message =
+        data?.message ||
+        data?.detail ||
+        "The backend reported an error.";
+
+    return `Stage: ${stage} | ${code} | ${message}`;
 
 }
 
@@ -1079,17 +1147,36 @@ async function parseResponse(response){
 
     if(!response.ok){
 
+        const detail = data?.detail;
         const message =
-            data?.detail ||
-            data?.message ||
-            data?.error ||
-            `Backend request failed (${response.status}).`;
+            typeof detail === "object"
+                ? detail?.message || detail?.error
+                : detail ||
+                  data?.message ||
+                  data?.error ||
+                  `Backend request failed (${response.status}).`;
 
-        throw new Error(
+        const error = new Error(
             typeof message === "string"
                 ? message
                 : JSON.stringify(message)
         );
+
+        error.backendData = data;
+        error.httpStatus = response.status;
+        throw error;
+
+    }
+
+    if(data?.success === false){
+
+        const error = new Error(
+            describeBackendError(data)
+        );
+
+        error.backendData = data;
+        error.httpStatus = response.status;
+        throw error;
 
     }
 
@@ -1172,6 +1259,10 @@ async function checkBackend(){
            and also a successful JSON
            response from the backend.
         */
+
+        addDiagnostic(
+            `Backend health response received: ${data?.status || "unknown"}. Gemini configured: ${data?.gemini_configured ? "YES" : "NO"}.`
+        );
 
         if(
             data?.status === "healthy" ||
@@ -1682,8 +1773,16 @@ transcribeBtn.addEventListener(
             true
         );
 
+        const fileType =
+            selectedAudioFile.type ||
+            "unknown";
+
         setStatus(
             "🟡 Sending audio for transcription..."
+        );
+
+        addDiagnostic(
+            `TRANSCRIBE START → ${selectedAudioFile.name} | ${formatBytes(selectedAudioFile.size)} | MIME: ${fileType}`
         );
 
         try{
@@ -1695,6 +1794,10 @@ transcribeBtn.addEventListener(
                 "file",
                 selectedAudioFile,
                 selectedAudioFile.name
+            );
+
+            addDiagnostic(
+                "Browser → FastAPI: multipart/form-data request sent to /api/transcribe."
             );
 
             const response =
@@ -1717,6 +1820,10 @@ transcribeBtn.addEventListener(
                     response
                 );
 
+            addDiagnostic(
+                `FastAPI → Gemini: request completed. Stage: ${data?.stage || "unknown"}. Model: ${data?.model || "n/a"}.`
+            );
+
             const text =
                 getResponseText(data);
 
@@ -1728,31 +1835,44 @@ transcribeBtn.addEventListener(
                 downloadTranscriptBtn.disabled =
                     false;
 
+                addDiagnostic(
+                    `TRANSCRIPT OK → ${text.length} characters received from Gemini.`
+                );
+
                 setStatus(
                     "🟢 Transcription completed."
                 );
 
             }else{
 
-                setStatus(
-                    "🟡 Backend received the audio, but no transcript was returned."
-                );
-
-                console.log(
-                    "Transcribe response:",
-                    data
+                throw new Error(
+                    "Backend reported success but returned no transcript text."
                 );
 
             }
 
         }catch(error){
 
-            setStatus(
-                "🔴 Transcription error: " +
-                error.message
+            const detail =
+                error?.backendData
+                    ? describeBackendError(
+                        error.backendData
+                    )
+                    : error.message;
+
+            addDiagnostic(
+                `🔴 TRANSCRIBE FAILED → ${detail}`
             );
 
-            console.error(error);
+            setStatus(
+                "🔴 Transcription error: " +
+                detail
+            );
+
+            console.error(
+                "Transcription error:",
+                error
+            );
 
         }finally{
 
@@ -1810,6 +1930,10 @@ translateBtn.addEventListener(
             "🟡 Sending transcript for translation..."
         );
 
+        addDiagnostic(
+            `TRANSLATE START → ${sourceLanguage.value} → ${targetLanguage.value} | ${text.length} characters`
+        );
+
         try{
 
             const response =
@@ -1845,6 +1969,10 @@ translateBtn.addEventListener(
                     response
                 );
 
+            addDiagnostic(
+                `FastAPI → Gemini: translation request completed. Stage: ${data?.stage || "complete"}.`
+            );
+
             const translatedText =
                 getTranslatedText(data);
 
@@ -1855,6 +1983,10 @@ translateBtn.addEventListener(
 
                 downloadTranscriptBtn.disabled =
                     false;
+
+                addDiagnostic(
+                    `TRANSLATION OK → ${translatedText.length} characters received.`
+                );
 
                 setStatus(
                     "🟢 Translation completed."
@@ -1875,9 +2007,20 @@ translateBtn.addEventListener(
 
         }catch(error){
 
+            const detail =
+                error?.backendData
+                    ? describeBackendError(
+                        error.backendData
+                    )
+                    : error.message;
+
+            addDiagnostic(
+                `🔴 TRANSLATE FAILED → ${detail}`
+            );
+
             setStatus(
                 "🔴 Translation error: " +
-                error.message
+                detail
             );
 
             console.error(error);
@@ -2029,7 +2172,41 @@ generateBtn.addEventListener(
             "🟡 Sending dubbing request..."
         );
 
+        addDiagnostic(
+            "DUB START → /api/dubbing"
+        );
+
         try{
+
+            const formData =
+                new FormData();
+
+            formData.append(
+                "text",
+                text
+            );
+
+            formData.append(
+                "target_language",
+                targetLanguage.value
+            );
+
+            formData.append(
+                "voice",
+                "alloy"
+            );
+
+            if(selectedVoiceFile){
+                formData.append(
+                    "voice_reference",
+                    selectedVoiceFile,
+                    selectedVoiceFile.name
+                );
+            }
+
+            addDiagnostic(
+                "Browser → FastAPI: multipart/form-data dubbing request sent."
+            );
 
             const response =
                 await fetch(
@@ -2038,24 +2215,11 @@ generateBtn.addEventListener(
                     ),
                     {
                         method:"POST",
-
+                        body:formData,
                         headers:{
-                            "Content-Type":
-                                "application/json",
-
                             "Accept":
                                 "application/json"
-                        },
-
-                        body:JSON.stringify({
-                            text:text,
-
-                            source_language:
-                                sourceLanguage.value,
-
-                            target_language:
-                                targetLanguage.value
-                        })
+                        }
                     }
                 );
 
@@ -2075,11 +2239,9 @@ generateBtn.addEventListener(
                     );
 
                 if(!generatedAudioUrl){
-
                     throw new Error(
                         "Backend returned an invalid audio URL."
                     );
-
                 }
 
                 outputAudio.src =
@@ -2095,34 +2257,47 @@ generateBtn.addEventListener(
                 outputMessage.textContent =
                     "Generated audio is ready.";
 
+                addDiagnostic(
+                    "DUB OK → Generated audio URL received."
+                );
+
                 setStatus(
                     "🟢 Dub generated successfully."
                 );
 
             }else{
 
-                outputMessage.textContent =
-                    "The dubbing request reached the backend, but no audio URL was returned.";
-
-                setStatus(
-                    "🟡 Backend received the dubbing request, but no generated audio was returned."
-                );
-
-                console.log(
-                    "Dubbing response:",
-                    data
+                throw new Error(
+                    "Backend reported success but returned no audio URL."
                 );
 
             }
 
         }catch(error){
 
-            setStatus(
-                "🔴 Dubbing error: " +
-                error.message
+            const detail =
+                error?.backendData
+                    ? describeBackendError(
+                        error.backendData
+                    )
+                    : error.message;
+
+            addDiagnostic(
+                `🔴 DUB FAILED → ${detail}`
             );
 
-            console.error(error);
+            outputMessage.textContent =
+                "No generated audio is available.";
+
+            setStatus(
+                "🔴 Dubbing error: " +
+                detail
+            );
+
+            console.error(
+                "Dubbing error:",
+                error
+            );
 
         }finally{
 
@@ -2430,6 +2605,7 @@ downloadBtn.disabled =
    Check backend when page loads.
 */
 
+addDiagnostic("BICON frontend initialized.");
 checkBackend();
 
 
